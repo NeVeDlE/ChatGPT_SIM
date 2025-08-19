@@ -1,0 +1,80 @@
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar card" aria-label="Conversations">
+    <div class="brand">
+      <div class="gem" aria-hidden="true"></div>
+      <div class="brand-text">
+        <h1>Chat <span class="gradient-text">Studio</span></h1>
+        <p class="sub">GPT-like simulator</p>
+      </div>
+    </div>
+
+    <nav class="side-actions">
+      <button class="btn btn-primary" data-action="new-chat" aria-label="Start new chat">+ New chat</button>
+      <button class="btn" data-action="clear" aria-label="Clear messages">Clear</button>
+    </nav>
+
+    <div class="divider"></div>
+
+    <div class="threads" role="listbox" aria-label="Recent conversations" id="recent-conversations">
+
+    </div>
+
+    <div class="account">
+    <img class="acc-avatar" src="https://placehold.co/40x40" alt="https://placehold.co/40x40" data-user-avatar height="40" width="40">
+      <div class="acc-meta">
+        <strong class="acc-name" data-user-name>Guest</strong>
+        <span class="acc-sub" data-user-email>guest@example.com</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Header -->
+  <header class="header card" aria-label="Top Bar">
+    <div class="status">
+      <span class="pulse" aria-hidden="true"></span>
+      Connected
+    </div>
+
+    <div class="model-picker">
+      <label for="model" class="sr-only">Model</label>
+      <div class="select-wrap">
+        <select id="model" class="select" data-hook="model">
+          <option>gpt-5-thinking</option>
+          <option selected>gpt-4.1-mini</option>
+          <option>gpt-4o</option>
+        </select>
+        <span class="select-caret" aria-hidden="true"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Chat -->
+  <main class="chat card" id="chat" aria-live="polite" aria-label="Messages">
+    <article class="msg">
+      <div class="avatar" aria-hidden="true">A</div>
+      <div class="bubble assistant">
+        <div class="meta">
+          <span class="role">Assistant</span>
+          <time class="time" datetime="">now</time>
+        </div>
+        <div class="content">
+          You’re in! This is the chat page. Wire your JS to render messages here.
+          <pre class="code"><code>// No JS included — your turn to practice!
+function hello(){ console.log("Welcome to Chat Studio") }</code></pre>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <!-- Composer -->
+  <footer class="composer">
+    <div class="input card">
+      <button class="icon-btn" aria-label="Attach file" data-hook="attach">📎</button>
+      <label for="message" class="sr-only">Message</label>
+      <textarea id="message" class="field" placeholder="Message Chat Studio…" rows="1"></textarea>
+      <button class="icon-btn" aria-label="Voice input" data-hook="voice">🎙️</button>
+    </div>
+    <button class="send" data-hook="send">Send</button>
+  </footer>
+</div>
