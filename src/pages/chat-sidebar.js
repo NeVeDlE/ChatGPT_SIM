@@ -1,12 +1,15 @@
 import {authGet} from "../services/api";
 import {showError} from "../utils/dom";
+import {ChatWindow} from "./chat-window";
 
 export class ChatSidebar {
     #conversations;
+    #onConversationSelected;
 
     constructor() {
         this.#conversations = document.querySelector("#recent-conversations");
         this.renderConversations();
+        this.addEventListenerOnConversations();
     }
 
     async renderConversations() {
@@ -39,6 +42,7 @@ export class ChatSidebar {
     renderButtonHTML(conversation) {
         const button = document.createElement("button");
         button.innerHTML = conversation.title;
+        button.dataset.id = conversation.id;
         button.setAttribute("type", "button");
         button.className = "thread";
         return button;
@@ -48,6 +52,24 @@ export class ChatSidebar {
         const span = document.createElement("span");
         span.className = "dot";
         return span;
+    }
+
+    addEventListenerOnConversations() {
+
+        this.#conversations.addEventListener("click", (event) => {
+            const button = event.target.closest("button.thread");
+            if (!button) return;
+
+            const conversationId = button.dataset.id; // get the actual id
+
+            if (this.#onConversationSelected) {
+                this.#onConversationSelected(conversationId); // ✅ pass id to callback
+            }
+        });
+    }
+
+    onConversationSelected(callback) {
+        this.#onConversationSelected = callback;
     }
 
 

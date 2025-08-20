@@ -1,6 +1,8 @@
 import {getToken, getUser} from "../services/storage.js";
 import {showError} from "../utils/dom.js";
 import {ChatSidebar} from "./chat-sidebar";
+import {ChatWindow} from "./chat-window";
+import {ChatInput} from "./chat-input";
 
 const errorBox = document.querySelector("#chat-error");
 
@@ -15,4 +17,14 @@ emailEl.innerHTML = email;
 if (avatar_url) {
     avatarEl.src = avatar_url ?? '';
 }
+
+const chatWindow = new ChatWindow();
 const chatSidebar = new ChatSidebar();
+const chatInput = new ChatInput();
+
+chatSidebar.onConversationSelected(conversationId => {
+    chatWindow.loadConversation(conversationId);
+});
+
+
+

@@ -303,3 +303,30 @@ pre.code code{
       "sidebar";
   }
 }
+.msg {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 6px 0; /* less spacing between messages */
+}
+
+.bubble {
+  padding: 8px 12px; /* reduced padding */
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  max-width: 80%; /* don't stretch full width */
+  word-wrap: break-word;
+  white-space: pre-wrap; /* handle short messages without stretching */
+}
+
+.msg.user {
+  grid-template-columns: 1fr 38px; /* flip */
+  text-align: right;
+}
+
+.msg.user .bubble {
+  justify-self: end; /* push bubble to the right */
+}
+
