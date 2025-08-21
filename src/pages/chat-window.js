@@ -5,13 +5,18 @@ import {marked} from "marked";
 
 export class ChatWindow {
     #messages;
+    #chatBox;
 
     constructor() {
-
+        this.#chatBox = document.getElementById('chat');
     }
 
     loadConversation(conversationId) {
         this.fetchConversationMessages(conversationId);
+    }
+
+    appendMessageToConversation(message) {
+
     }
 
     async fetchConversationMessages(conversationId) {
@@ -31,37 +36,45 @@ export class ChatWindow {
     }
 
     renderMessagesHtml(messages) {
-        const chatBox = document.getElementById('chat');
-        chatBox.innerHTML = ""; // clear previous
 
-        messages.forEach((message) => {
-            const role = message.role ?? 'user';
+        this.#chatBox.innerHTML = ""; // clear previous
 
-            const article = this.renderArticleHTML(role);
-            const avatar = this.renderAvatarHTML(role);
-            const bubble = this.renderBubbleHtml(role);
-            const meta = this.renderMetaHTML();
-            const span = this.renderSpanHTML(role);
-            const content = this.renderContentHtml(message.content[0].value);
-
-            meta.appendChild(span);
-            bubble.appendChild(meta);
-            bubble.appendChild(content);
-
-            if (role === "assistant") {
-                // Assistant → avatar left, bubble right
-                article.appendChild(avatar);
-                article.appendChild(bubble);
-            } else {
-                // User → bubble left, avatar right
-                article.appendChild(bubble);
-                article.appendChild(avatar);
-            }
-
-            chatBox.appendChild(article);
+        messages.forEach(message => {
+            this.renderMessageHTML(message);
+        })
+        this.#chatBox.scrollTo({
+            top: this.#chatBox.scrollHeight,
+            behavior: "smooth"
         });
-        chatBox.scrollTo({
-            top: chatBox.scrollHeight,
+    }
+
+    renderMessageHTML(message) {
+        const role = message.role ?? 'user';
+
+        const article = this.renderArticleHTML(role);
+        const avatar = this.renderAvatarHTML(role);
+        const bubble = this.renderBubbleHtml(role);
+        const meta = this.renderMetaHTML();
+        const span = this.renderSpanHTML(role);
+        const content = this.renderContentHtml(message.content[0].value);
+
+        meta.appendChild(span);
+        bubble.appendChild(meta);
+        bubble.appendChild(content);
+
+        if (role === "assistant") {
+            // Assistant → avatar left, bubble right
+            article.appendChild(avatar);
+            article.appendChild(bubble);
+        } else {
+            // User → bubble left, avatar right
+            article.appendChild(bubble);
+            article.appendChild(avatar);
+        }
+
+        this.#chatBox.appendChild(article);
+        this.#chatBox.scrollTo({
+            top: this.#chatBox.scrollHeight,
             behavior: "smooth"
         });
     }
@@ -108,5 +121,5 @@ export class ChatWindow {
         content.innerHTML = marked.parse(message);
         return content;
     }
-    
+
 }

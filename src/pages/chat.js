@@ -24,7 +24,12 @@ const chatInput = new ChatInput();
 
 chatSidebar.onConversationSelected(conversationId => {
     chatWindow.loadConversation(conversationId);
+
 });
 
+chatInput.onMessageSubmit((msg) => {
+    chatWindow.renderMessageHTML(msg);
+});
+chatInput.addFormEventListner(); //
 
 

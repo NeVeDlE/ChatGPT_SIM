@@ -1,35 +1,68 @@
 import {createStream} from "../services/api";
+import {ChatWindow} from "./chat-window";
 
 export class ChatInput {
-    constructor(message) {
-        document.getElementById("chat-form").addEventListener("submit", async function (e) {
-            e.preventDefault();
+    #onMessageSubmit;
 
-            const input = document.getElementById("message");
-            const message = input.value.trim();
-            if (!message) return;
+    constructor() {
+        // this.addFormEventListner();
+    }
 
-            input.value = ""; // clear input
+    addFormEventListner() {
+        const form = document.getElementById("chat-form");
+        if (!form) {
+            console.error("❌ chat-form not found");
+            return;
+        }
 
-            // Start streaming from backend
-            await createStream(`/chats/2/generate/stream?prompt=${encodeURIComponent(message)}`, {
-                onOpen: () => console.log("🔗 Stream connected"),
-                onMessage: (msg) => {
-                    console.log("📨", msg);
+        form.addEventListener("submit", (e) => this.handleFormSubmit(e));
+    }
 
-                    const chat = document.getElementById("chat");
-                    const div = document.createElement("div");
-                    div.textContent = typeof msg === "string" ? msg : JSON.stringify(msg);
-                    chat.appendChild(div);
+    async handleFormSubmit(e) {
+        e.preventDefault();
 
-                    chat.scrollTo({top: chat.scrollHeight, behavior: "smooth"});
-                },
-                onError: (err) => console.error("❌ Stream error:", err)
-            });
+        const input = document.getElementById("message");
+        const message = input.value.trim();
+        if (!message) return;
+
+        input.value = "";
+
+        let answer = "";
+
+        await createStream(`/chats/2/generate/stream?prompt=${encodeURIComponent(message)}&temperature=1`, {
+            onOpen: () => console.log("🔗 Stream connected"),
+            onMessage: (msg) => {
+
+
+                if (msg.type === "init") {
+                    console.log("📨", msg.type);
+                    if (this.#onMessageSubmit) {
+                        new ChatWindow().renderMessageHTML({
+                            id: msg.user_message_id,
+                            role: "user",
+                            content: [{value: message}],
+                        });
+                    }
+
+                 /*   if (this.#onMessageSubmit) {
+                        this.#onMessageSubmit({
+                            id: msg.user_message_id,
+                            role: "user",
+                            content: [{value: message}],
+                        });
+                    }*/
+                }
+
+                answer += msg.data;
+            },
+            onError: (err) => console.error("❌ Stream error:", err),
         });
     }
 
-
+    onMessageSubmit(callback) {
+        console.log(callback)
+        this.#onMessageSubmit = callback;
+    }
 
 
 }
