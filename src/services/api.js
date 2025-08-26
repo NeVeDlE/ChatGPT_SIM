@@ -60,44 +60,56 @@ export async function authGet(path) {
     return {ok: res.ok, data};
 }
 
-export async function createStream(path, { onMessage, onError } = {}) {
-    const token = getToken();
-    const res = await fetch(`${base}${path}`, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token}`,
-            "Accept": "text/event-stream",
-        }
+export function createStreamES(path, {
+    params = {},            // e.g. { prompt, temperature }
+    token  = getToken(),          // optional: pass bearer; will go in the URL
+    tokenParam = 'bearer',  // query key your backend reads
+    withCredentials = false,// true if you use cookie auth
+    onEvent = () => {},     // ({ type, data, raw })
+    onError = console.error,
+    onOpen  = () => {},
+} = {}) {
+    // build URL
+    const url = new URL(base + path);
+    Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     });
+    if (!withCredentials && token) url.searchParams.set(tokenParam, token);
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
+    // start stream
+    const es = new EventSource(url.toString(), { withCredentials });
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    es.onopen = onOpen;
+    es.onerror = onError;
 
-        buffer += decoder.decode(value, { stream: true });
+    // one tiny parser for all events you emit
+    const handle = (evt) => {
+        const raw = evt.data ?? '';
+        let data = raw; try { data = JSON.parse(raw); } catch {}
+        onEvent({ type: evt.type || 'message', data, raw });
+        if (evt.type === 'done' || (data && typeof data === 'object' && data.type === 'done')) {
+            es.close();
+        } // stop when server says done
+    };
 
-        let parts = buffer.split("\n\n");
-        buffer = parts.pop(); // keep incomplete chunk
+    // your custom events + generic fallback
+    es.addEventListener('init', handle);
+    es.addEventListener('delta', handle);
+    es.addEventListener('done',  handle);
+    es.addEventListener('message', handle);
 
-        for (const part of parts) {
-            if (part.startsWith("data:")) {
-                const data = part.replace(/^data:\s*/, "");
-                try {
-                    onMessage?.(JSON.parse(data));
-                } catch {
-                    onMessage?.(data);
-                }
-            }
-        }
-    }
+    // simple API for caller
+    return {
+        es,
+        close: () => es.close(),
+        url: url.toString(),
+    };
 }
+
 
 function getToken() {
-    let raw = localStorage.getItem("token");
-    if (!raw) return null;
-    return raw.replace(/^"|"$/g, ""); // normalize once
+    const raw = localStorage.getItem('token');
+    return raw ? raw.replace(/^"|"$/g, '') : null;
 }
+
+

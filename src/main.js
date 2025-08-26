@@ -3,9 +3,6 @@ import '.././public/styles.css'; // if you also keep a module stylesheet; option
 
 import { getToken } from './services/storage';
 
-import { ChatWindow } from "./pages/chat-window";
-import { ChatSidebar } from "./pages/chat-sidebar";
-
 
 const router = new Router({ rootId: 'app', viewBase: '/views', useHash: false });
 
