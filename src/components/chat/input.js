@@ -1,5 +1,5 @@
 
-export class ChatInput {
+export class Input {
     #form; #input; #onSubmit = null;
 
     constructor({ formSelector = "#chat-form", inputSelector = "#message" } = {}) {

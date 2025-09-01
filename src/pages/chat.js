@@ -1,330 +1,192 @@
-// app/chat.js (the Chat controller)
-import { getUser } from "../services/storage.js";
-import { showError } from "../utils/dom.js";
-import { authGet, createStreamES } from "../services/api.js";
-
-import { ChatSidebar } from "../components/chat-sidebar.js";
-import { ChatWindow } from "../components/chat-window.js";
-import { ChatInput } from "../components/chat-input.js";
+import {Sidebar} from "../components/chat/sidebar";
+import {Regenerator} from "../components/chat/regenerator";
+import {Editor} from "../components/chat/editor";
+import {ActionController} from "../components/chat/action-controller";
+import {ConversationLoader} from "../components/chat/conversation-loader";
+import {KeyboardNavigator} from "../components/chat/keyboard-navigator";
+import {getUser} from "../services/storage";
+import {StreamSession} from "../components/chat/stream-session";
+import {authGet, createStreamES} from "../services/api";
+import {showError} from "../utils/dom";
+import {Window} from "../components/chat/window";
+import {Input} from "../components/chat/input.js";
 
 class Chat {
+    // state
     #chatId = null;
-    #activePivotId = null;        // assistant id to anchor new turns
-    #pendingUserParentId = null;  // link the echo'd user message
-
-    // streaming state
-    #buffer = "";
-    #visible = "";
-    #done = false;
-    #handle = null;
-    #setContent = (md) => {};
-    #closeStream = null;
+    #activePivotId = null;
+    #pendingUserParentId = null;
+    #tempUserId = null;
     #currentUserText = "";
-
-    // timers
-    #timers = { type: null, render: null };
 
     // tuning
     #TYPE_CPS = 80;
     #TICK_MS = 20;
     #RENDER_MS = 60;
-    #CHARS_PER_TICK = 1;
+
+    // helpers
+    #actions;
+    #loader;
+    #kbd;
+    #session = null;
 
     constructor() {
-        // header info
-        const { email, name, avatar_url } = getUser();
+        this.#initHeader();
+
+        // core UI
+        this.window = new Window("#chat");
+        this.sidebar = new Sidebar("#recent-conversations");
+        this.input = new Input({formSelector: "#chat-form", inputSelector: "#message"});
+
+        // features
+        this.regen = new Regenerator({
+            chatIdGetter: () => this.#chatId,
+            window: this.window,
+            startStream: (...args) => this.startStream(...args),
+            setActivePivotId: (id) => {
+                this.#activePivotId = id;
+            },
+            setPendingUserParentId: (id) => {
+                this.#pendingUserParentId = id;
+            },
+        });
+
+        this.editor = new Editor({
+            chatIdGetter: () => this.#chatId,
+            window: this.window,
+            startStream: (...args) => this.startStream(...args),
+            setActivePivotId: (id) => {
+                this.#activePivotId = id;
+            },
+            setPendingUserParentId: (id) => {
+                this.#pendingUserParentId = id;
+            },
+            setTempUserId: (tid) => {
+                this.#tempUserId = tid;
+            },
+        });
+
+        this.#actions = new ActionController({
+            window: this.window,
+            setActivePivotId: (id) => {
+                this.#activePivotId = id;
+            },
+            regen: this.regen,
+            editor: this.editor,
+        });
+
+        this.#loader = new ConversationLoader({
+            authGet,
+            window: this.window,
+            setActivePivotId: (id) => {
+                this.#activePivotId = id;
+            },
+            showError,
+        });
+
+        this.#kbd = new KeyboardNavigator({
+            window: this.window,
+            getPivotId: () => this.#activePivotId,
+            setPivotId: (id) => {
+                this.#activePivotId = id;
+            },
+        });
+
+        // wiring
+        this.sidebar.onConversationSelected((id) => {
+            this.#chatId = Number(id);
+            this.loadConversation(this.#chatId);
+        });
+        this.input.onMessageSubmit((text) => {
+            if (!this.#chatId) return showError("Pick a conversation first.");
+            this.startStream(text);
+        });
+        this.window.onAction(this.#handleAction);
+    }
+
+    #initHeader() {
+        const {email, name, avatar_url} = getUser();
         const nameEl = document.querySelector("[data-user-name]");
         const emailEl = document.querySelector("[data-user-email]");
         const avatarEl = document.querySelector("[data-user-avatar]");
         if (nameEl) nameEl.textContent = name || "";
         if (emailEl) emailEl.textContent = email || "";
         if (avatarEl) avatarEl.src = avatar_url || "";
-
-        // components
-        this.window = new ChatWindow("#chat");
-        this.sidebar = new ChatSidebar("#recent-conversations");
-        this.input = new ChatInput({ formSelector: "#chat-form", inputSelector: "#message" });
-
-        // events
-        this.sidebar.onConversationSelected((id) => {
-            this.#chatId = Number(id);
-            this.loadConversation(this.#chatId);
-        });
-
-        this.input.onMessageSubmit((text) => {
-            if (!this.#chatId) return showError("Pick a conversation first.");
-            this.startStream(text);
-        });
-
-        this.window.onAction(this.#handleAction);
-
-        document.addEventListener("keydown", (e) => {
-            const tag = (e.target?.tagName || "").toLowerCase();
-            if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) return;
-            const nav = document.querySelector(".variant-nav");
-            if (!nav) return;
-            const article = nav.closest("article.msg");
-            if (!article) return;
-            if (e.key === "ArrowLeft") {
-                const nextArt = this.window.switchVariantByArticle(article, -1);
-                this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
-            } else if (e.key === "ArrowRight") {
-                const nextArt = this.window.switchVariantByArticle(article, +1);
-                this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
-            }
-            this.window.scrollToBottom();
-        });
     }
 
+    // ------ tiny public surface ------
     async loadConversation(conversationId) {
-        try {
-            const { ok, data } = await authGet(`/chats/${conversationId}/messages`);
-            if (!ok || data?.status === "error") return showError(data?.message || "Fetching Conversations Failed.");
-            this.window.pinPathTo(null);                 // clear any previous pin
-            this.window.renderMessages(data.data);
-            this.#activePivotId = this.window.getLastVisibleAssistantId() || null;
-            this.window.scrollToBottom();
-        } catch (err) {
-            console.error("Error fetching messages:", err);
-            showError("Could not load conversation.");
-        }
+        return this.#loader.load(conversationId);
     }
-
-    // =========================
-    // Public: start the stream
-    // =========================
-    #opts = null; // { reuseArticle, skipUserEcho, regenButton }
 
     startStream(userText, {
-        reuseArticle = null,
-        skipUserEcho = false,
-        endpoint = null,          // if set, use this (regen); else /generate/stream
+        endpoint = null,
         extraParams = {},
+        skipUserEcho = false,
+        forceFromId,
         regenButton = null,
+        reuseArticle = null, // not used here, but kept for API parity; StreamSession renders skeleton fresh
     } = {}) {
-        this.#clearTimers();
-        this.#closeStream?.();
+        // end previous stream if any
+        this.#session?.cancel();
 
-        this.#buffer = "";
-        this.#visible = "";
-        this.#done = false;
-        this.#handle = null;
-        this.#setContent = () => {};
-        this.#currentUserText = userText;
-        this.#CHARS_PER_TICK = Math.max(1, Math.round((this.#TYPE_CPS * this.#TICK_MS) / 1000));
-        this.#opts = { reuseArticle, skipUserEcho, regenButton };
+        // build a new session per turn
+        this.#session = new StreamSession({
+            chatId: this.#chatId,
+            window: this.window,
+            createStreamES,
+            tuning: {cps: this.#TYPE_CPS, tickMs: this.#TICK_MS, renderMs: this.#RENDER_MS},
+            state: {
+                getActivePivotId: () => this.#activePivotId,
+                setActivePivotId: (id) => {
+                    this.#activePivotId = id;
+                },
+                getPendingUserParentId: () => this.#pendingUserParentId,
+                setPendingUserParentId: (id) => {
+                    this.#pendingUserParentId = id;
+                },
+                getTempUserId: () => this.#tempUserId,
+                setTempUserId: (id) => {
+                    this.#tempUserId = id;
+                },
+                getCurrentUserText: () => this.#currentUserText,
+                setCurrentUserText: (t) => {
+                    this.#currentUserText = t;
+                },
+            },
+            hooks: {
+                onFinalize: (opts) => {
+                    // keep variant groups correct after stream
+                    this.window.decorateVariantGroups();
 
-        const path = endpoint ?? `/chats/${this.#chatId}/generate/stream`;
-        const params = { temperature: 1, ...extraParams };
-        if (userText) params.prompt = userText;
-
-        // Determine anchor: prefer explicitly set pivot, else current visible assistant, else tail
-        const anchor =
-            this.#activePivotId ??
-            this.window.getCurrentAssistantId() ??
-            this.window.getLastVisibleAssistantId();
-
-        if (anchor) params.from_id = anchor;
-        this.#pendingUserParentId = anchor || null;
-
-        const { close } = createStreamES(path, {
-            params,
-            tokenParam: "bearer",
-            withCredentials: false,
-            onOpen: () => console.log("🔗 stream open"),
-            onEvent: this.#onSSEEvent,
-            onError: this.#onStreamFailure,
+                    // also reset regen button here if you want — already handled inside session,
+                    // left here so you can extend later (analytics, etc.)
+                    if (opts?.regenButton) {
+                        try {
+                            opts.regenButton.disabled = false;
+                            opts.regenButton.classList.remove("is-active");
+                            opts.regenButton.setAttribute("data-tip", "Regenerate");
+                            opts.regenButton.setAttribute("title", "Regenerate");
+                        } catch {
+                        }
+                    }
+                },
+            },
         });
-        this.#closeStream = close;
+
+        this.#session.start({
+            userText,
+            endpoint,
+            extraParams,
+            skipUserEcho,
+            forceFromId,
+            regenButton,
+        });
     }
 
-    // =========================
-    // SSE dispatcher
-    // =========================
-    #onSSEEvent = (evt) => {
-        const payload = evt?.data ?? evt;
-        const type = payload?.type ?? evt?.type;
-
-        switch (type) {
-            case "init":  return this.#handleInit(payload);
-            case "delta": return this.#handleDelta(payload);
-            case "done":  return this.#handleDone(payload);
-            case "error": return this.#handleServerError(payload);
-            default:      return; // ignore unknown
-        }
-    };
-
-    // ---------- event handlers ----------
-
-    #handleInit(payload) {
-        // echo the user message in the correct branch, unless told to skip
-        if (!this.#opts.skipUserEcho && payload.user_message_id) {
-            this.window.renderMessage({
-                id: payload.user_message_id,
-                role: "user",
-                content: [{ value: this.#currentUserText }],
-                parent_id: this.#pendingUserParentId ?? null,
-            });
-            this.#pendingUserParentId = null;
-        }
-
-        // create assistant skeleton
-        this.#handle = this.window.startAssistantSkeleton({ id: payload.assistant_message_id });
-        this.#setContent = (md) => this.#handle.setMarkdown(md);
-        this.#activePivotId = payload.assistant_message_id;
-
-        // Put the skeleton under the right parent
-        const parentId =
-            payload.assistant_parent_id ||
-            this.#pendingUserParentId ||
-            payload.user_message_id ||
-            null;
-
-        if (parentId && this.#handle?.elements?.article) {
-            this.#handle.elements.article.dataset.parentId = String(parentId);
-        }
-
-        // Pin the visible path to this new leaf (keeps branch stable)
-        this.window.pinPathTo(payload.assistant_message_id);
-
-        // Re-evaluate groups so arrows/visibility are right away
-        this.window.decorateVariantGroups();
-
-        this.#startTypewriterLoop();
-    }
-
-    #handleDelta(payload) {
-        const chunk = typeof payload === "string" ? payload : (payload?.data ?? "");
-        if (chunk) this.#buffer += chunk;
-    }
-
-    #handleDone(payload) {
-        const tail = typeof payload === "string" ? payload : (payload?.data ?? "");
-        if (tail) this.#buffer += tail;
-        this.#done = true;
-        this.#closeStream?.();
-    }
-
-    #handleServerError(payload) {
-        console.error("SSE error:", payload);
-        this.#done = true;
-        this.#closeStream?.();
-        this.#finalizeStream(); // end gracefully
-    }
-
-    #onStreamFailure = (err) => {
-        console.error("❌ stream failed:", err);
-        this.#done = true;
-        this.#finalizeStream();
-    };
-
-    // ---------- typewriter / render ----------
-
-    #startTypewriterLoop() {
-        this.#timers.type = setInterval(() => {
-            if (this.#buffer.length > 0) {
-                const take = Math.min(this.#buffer.length, this.#CHARS_PER_TICK);
-                const chunk = this.#buffer.slice(0, take);
-                this.#buffer = this.#buffer.slice(take);
-                this.#visible += chunk;
-                this.#scheduleRender();
-            } else if (this.#done) {
-                this.#finalizeStream();
-            }
-        }, this.#TICK_MS);
-    }
-
-    #scheduleRender() {
-        if (this.#timers.render) return;
-        this.#timers.render = setTimeout(() => {
-            this.#setContent(this.#visible);
-            this.window.scrollToBottom();
-            this.#timers.render = null;
-        }, this.#RENDER_MS);
-    }
-
-    #finalizeStream() {
-        if (this.#timers.render) {
-            clearTimeout(this.#timers.render);
-            this.#timers.render = null;
-        }
-        if (this.#timers.type) {
-            clearInterval(this.#timers.type);
-            this.#timers.type = null;
-        }
-        this.#setContent(this.#visible);
-        this.#handle?.finish?.();
-
-        this.window.decorateVariantGroups();
-        this.window.scrollToBottom();
-    }
-
-    // ---------- utilities ----------
-    #clearTimers() {
-        if (this.#timers.type) {
-            clearInterval(this.#timers.type);
-            this.#timers.type = null;
-        }
-        if (this.#timers.render) {
-            clearTimeout(this.#timers.render);
-            this.#timers.render = null;
-        }
-    }
-
-    #handleAction = async ({ action, role, article, text, button }) => {
-        if (action === "set-pivot") {
-            this.#activePivotId = article?.dataset?.id ? Number(article.dataset.id) : null;
-            return;
-        }
-        if (action === "variant-prev") {
-            const nextArt = this.window.switchVariantByArticle(article, -1);
-            this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
-            this.window.scrollToBottom();
-            return;
-        }
-        if (action === "variant-next") {
-            const nextArt = this.window.switchVariantByArticle(article, +1);
-            this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
-            this.window.scrollToBottom();
-            return;
-        }
-        if (action === "regenerate" && role === "assistant") {
-            const assistantId = article.dataset.id;
-            if (!assistantId) return console.warn("Assistant message id missing.");
-
-            // stay on the same branch
-            this.#pendingUserParentId = Number(article.dataset.parentId) || null;
-            this.#activePivotId = Number(assistantId) || null;
-            this.window.pinPathTo(assistantId);
-
-            // optional button feedback
-            if (button) {
-                button.disabled = true;
-                button.classList.add("is-active");
-                button.setAttribute("data-tip", "Regenerating…");
-                button.setAttribute("title", "Regenerating…");
-            }
-
-            // stream regeneration
-            this.startStream(null, {
-                reuseArticle: article,
-                skipUserEcho: true,
-                endpoint: `/chats/${this.#chatId}/messages/${assistantId}/regenerate/stream`,
-                extraParams: {},
-                regenButton: button,
-            });
-            return;
-        }
-
-        if (action === "copy") {
-            try {
-                await navigator.clipboard.writeText(text || "");
-            } catch (e) {
-                console.error("Copy failed:", e);
-            }
-            return;
-        }
-    };
+    // one-liner: delegate UI actions to controller
+    #handleAction = (payload) => this.#actions.handle(payload);
 }
 
 new Chat();
+

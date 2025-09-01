@@ -1,8 +1,8 @@
 // ui/chat-sidebar.js
-import { authGet } from "../services/api.js";
-import { showError } from "../utils/dom.js";
+import { authGet } from "../../services/api.js";
+import { showError } from "../../utils/dom.js";
 
-export class ChatSidebar {
+export class Sidebar {
     #conversations;
     #onConversationSelected;
 
