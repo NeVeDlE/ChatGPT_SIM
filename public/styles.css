@@ -396,3 +396,78 @@ pre.code code{
 .msg-action[data-tip]:focus-visible::after{
     opacity:1; transform: translateX(-50%) translateY(0);
 }
+.variant-hidden{display:none}
+.variant-nav{display:inline-flex;gap:6px;align-items:center;margin-right:auto}
+.variant-btn{appearance:none;border:1px solid var(--border);background:var(--panel);color:var(--text);width:30px;height:30px;border-radius:8px;display:grid;place-items:center}
+.variant-btn:hover{background:var(--panel-2)}
+.variant-count{font-size:12px;color:var(--text-dim)}
+/* Smooth container scrolling by default */
+.chat { scroll-behavior: smooth; }
+
+/* Animate message visibility changes (used when we toggle .variant-hidden) */
+.msg {
+    transition:
+            opacity .18s ease,
+            transform .18s ease,
+            max-height .22s ease,
+            margin .22s ease,
+            padding .22s ease;
+    will-change: opacity, transform;
+}
+
+/* Hidden state that still animates (no display:none!) */
+.msg.variant-hidden {
+    opacity: 0;
+    transform: translateY(8px);
+    max-height: 0;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* Subtle enter animation whenever a message is appended */
+.msg.msg-enter {
+    opacity: 0;
+    transform: translateY(8px);
+}
+.msg.msg-enter.msg-enter-active {
+    opacity: 1;
+    transform: none;
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .chat { scroll-behavior: auto; }
+    .msg { transition: none !important; }
+    .msg.variant-hidden { transform: none; }
+}
+/* Wrapper that holds the bubble + actions; width fits content */
+.msg-stack{
+    display: inline-flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 80%;          /* cap the whole block (used to be on .bubble) */
+}
+
+/* Place the whole block left for assistant, right for user */
+.msg.assistant .msg-stack{ justify-self: start; }
+.msg.user .msg-stack{ justify-self: end; }
+
+/* Actions should not stretch to full 1fr column */
+.msg-stack .msg-actions{
+    align-self: stretch;      /* same width as .msg-stack (i.e., the bubble) */
+    width: auto;              /* don’t force 100% of grid column */
+    justify-content: flex-start;
+}
+
+/* For user messages, keep actions aligned under the right edge */
+.msg.user .msg-stack .msg-actions{ justify-content: flex-end; }
+
+/* Optional: now that the cap moved to the wrapper, let bubble fill it */
+.bubble{ max-width: 100%; }   /* <— add this if you remove max-width from .bubble */
+
+

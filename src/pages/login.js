@@ -4,7 +4,10 @@ import Router from '../utils/router'; // not used directly, but ensures bundlers
 
 export function init() {
     // Already logged in? go chat
-    if (getToken()) history.replaceState({}, '', '/chat'); // Router guard will handle actual navigation
+    if (getToken()){
+        history.replaceState({}, '', '/chat'); // Router guard will handle actual navigation
+        window.dispatchEvent(new PopStateEvent('popstate'));
+    }
 
     const form = document.querySelector('#login-form');
     const errorBox = document.querySelector('#login-error');

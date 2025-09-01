@@ -1,3 +1,4 @@
+// app/chat.js (the Chat controller)
 import { getUser } from "../services/storage.js";
 import { showError } from "../utils/dom.js";
 import { authGet, createStreamES } from "../services/api.js";
@@ -8,13 +9,15 @@ import { ChatInput } from "../components/chat-input.js";
 
 class Chat {
     #chatId = null;
+    #activePivotId = null;        // assistant id to anchor new turns
+    #pendingUserParentId = null;  // link the echo'd user message
 
     // streaming state
     #buffer = "";
     #visible = "";
     #done = false;
-    #handle = null;          // assistant skeleton handle
-    #setContent = (md) => {}; // setter from skeleton
+    #handle = null;
+    #setContent = (md) => {};
     #closeStream = null;
     #currentUserText = "";
 
@@ -33,14 +36,14 @@ class Chat {
         const nameEl = document.querySelector("[data-user-name]");
         const emailEl = document.querySelector("[data-user-email]");
         const avatarEl = document.querySelector("[data-user-avatar]");
-        if (nameEl)  nameEl.textContent = name || "";
+        if (nameEl) nameEl.textContent = name || "";
         if (emailEl) emailEl.textContent = email || "";
         if (avatarEl) avatarEl.src = avatar_url || "";
 
         // components
-        this.window  = new ChatWindow("#chat");
+        this.window = new ChatWindow("#chat");
         this.sidebar = new ChatSidebar("#recent-conversations");
-        this.input   = new ChatInput({ formSelector: "#chat-form", inputSelector: "#message" });
+        this.input = new ChatInput({ formSelector: "#chat-form", inputSelector: "#message" });
 
         // events
         this.sidebar.onConversationSelected((id) => {
@@ -52,14 +55,35 @@ class Chat {
             if (!this.#chatId) return showError("Pick a conversation first.");
             this.startStream(text);
         });
+
         this.window.onAction(this.#handleAction);
+
+        document.addEventListener("keydown", (e) => {
+            const tag = (e.target?.tagName || "").toLowerCase();
+            if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) return;
+            const nav = document.querySelector(".variant-nav");
+            if (!nav) return;
+            const article = nav.closest("article.msg");
+            if (!article) return;
+            if (e.key === "ArrowLeft") {
+                const nextArt = this.window.switchVariantByArticle(article, -1);
+                this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
+            } else if (e.key === "ArrowRight") {
+                const nextArt = this.window.switchVariantByArticle(article, +1);
+                this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
+            }
+            this.window.scrollToBottom();
+        });
     }
 
     async loadConversation(conversationId) {
         try {
             const { ok, data } = await authGet(`/chats/${conversationId}/messages`);
             if (!ok || data?.status === "error") return showError(data?.message || "Fetching Conversations Failed.");
+            this.window.pinPathTo(null);                 // clear any previous pin
             this.window.renderMessages(data.data);
+            this.#activePivotId = this.window.getLastVisibleAssistantId() || null;
+            this.window.scrollToBottom();
         } catch (err) {
             console.error("Error fetching messages:", err);
             showError("Could not load conversation.");
@@ -74,7 +98,7 @@ class Chat {
     startStream(userText, {
         reuseArticle = null,
         skipUserEcho = false,
-        endpoint = null,          // if set, we use this (regen); else /generate/stream
+        endpoint = null,          // if set, use this (regen); else /generate/stream
         extraParams = {},
         regenButton = null,
     } = {}) {
@@ -93,6 +117,15 @@ class Chat {
         const path = endpoint ?? `/chats/${this.#chatId}/generate/stream`;
         const params = { temperature: 1, ...extraParams };
         if (userText) params.prompt = userText;
+
+        // Determine anchor: prefer explicitly set pivot, else current visible assistant, else tail
+        const anchor =
+            this.#activePivotId ??
+            this.window.getCurrentAssistantId() ??
+            this.window.getLastVisibleAssistantId();
+
+        if (anchor) params.from_id = anchor;
+        this.#pendingUserParentId = anchor || null;
 
         const { close } = createStreamES(path, {
             params,
@@ -122,21 +155,41 @@ class Chat {
     };
 
     // ---------- event handlers ----------
+
     #handleInit(payload) {
-        // render user bubble
-        if (payload.user_message_id) {
+        // echo the user message in the correct branch, unless told to skip
+        if (!this.#opts.skipUserEcho && payload.user_message_id) {
             this.window.renderMessage({
                 id: payload.user_message_id,
                 role: "user",
                 content: [{ value: this.#currentUserText }],
+                parent_id: this.#pendingUserParentId ?? null,
             });
+            this.#pendingUserParentId = null;
         }
 
         // create assistant skeleton
         this.#handle = this.window.startAssistantSkeleton({ id: payload.assistant_message_id });
         this.#setContent = (md) => this.#handle.setMarkdown(md);
+        this.#activePivotId = payload.assistant_message_id;
 
-        // kick typewriter loop
+        // Put the skeleton under the right parent
+        const parentId =
+            payload.assistant_parent_id ||
+            this.#pendingUserParentId ||
+            payload.user_message_id ||
+            null;
+
+        if (parentId && this.#handle?.elements?.article) {
+            this.#handle.elements.article.dataset.parentId = String(parentId);
+        }
+
+        // Pin the visible path to this new leaf (keeps branch stable)
+        this.window.pinPathTo(payload.assistant_message_id);
+
+        // Re-evaluate groups so arrows/visibility are right away
+        this.window.decorateVariantGroups();
+
         this.#startTypewriterLoop();
     }
 
@@ -166,12 +219,13 @@ class Chat {
     };
 
     // ---------- typewriter / render ----------
+
     #startTypewriterLoop() {
         this.#timers.type = setInterval(() => {
             if (this.#buffer.length > 0) {
                 const take = Math.min(this.#buffer.length, this.#CHARS_PER_TICK);
                 const chunk = this.#buffer.slice(0, take);
-                this.#buffer  = this.#buffer.slice(take);
+                this.#buffer = this.#buffer.slice(take);
                 this.#visible += chunk;
                 this.#scheduleRender();
             } else if (this.#done) {
@@ -190,22 +244,58 @@ class Chat {
     }
 
     #finalizeStream() {
-        if (this.#timers.render) { clearTimeout(this.#timers.render); this.#timers.render = null; }
-        if (this.#timers.type)   { clearInterval(this.#timers.type);  this.#timers.type = null; }
+        if (this.#timers.render) {
+            clearTimeout(this.#timers.render);
+            this.#timers.render = null;
+        }
+        if (this.#timers.type) {
+            clearInterval(this.#timers.type);
+            this.#timers.type = null;
+        }
         this.#setContent(this.#visible);
         this.#handle?.finish?.();
+
+        this.window.decorateVariantGroups();
         this.window.scrollToBottom();
     }
 
     // ---------- utilities ----------
     #clearTimers() {
-        if (this.#timers.type)   { clearInterval(this.#timers.type);  this.#timers.type = null; }
-        if (this.#timers.render) { clearTimeout(this.#timers.render); this.#timers.render = null; }
+        if (this.#timers.type) {
+            clearInterval(this.#timers.type);
+            this.#timers.type = null;
+        }
+        if (this.#timers.render) {
+            clearTimeout(this.#timers.render);
+            this.#timers.render = null;
+        }
     }
+
     #handleAction = async ({ action, role, article, text, button }) => {
+        if (action === "set-pivot") {
+            this.#activePivotId = article?.dataset?.id ? Number(article.dataset.id) : null;
+            return;
+        }
+        if (action === "variant-prev") {
+            const nextArt = this.window.switchVariantByArticle(article, -1);
+            this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
+            this.window.scrollToBottom();
+            return;
+        }
+        if (action === "variant-next") {
+            const nextArt = this.window.switchVariantByArticle(article, +1);
+            this.#activePivotId = Number(this.window.getLastVisibleAssistantId() || nextArt?.dataset?.id || this.#activePivotId);
+            this.window.scrollToBottom();
+            return;
+        }
         if (action === "regenerate" && role === "assistant") {
             const assistantId = article.dataset.id;
             if (!assistantId) return console.warn("Assistant message id missing.");
+
+            // stay on the same branch
+            this.#pendingUserParentId = Number(article.dataset.parentId) || null;
+            this.#activePivotId = Number(assistantId) || null;
+            this.window.pinPathTo(assistantId);
 
             // optional button feedback
             if (button) {
@@ -215,20 +305,23 @@ class Chat {
                 button.setAttribute("title", "Regenerating…");
             }
 
-            // 🔁 Replace in place: reuse the same article, don't re-echo the user
+            // stream regeneration
             this.startStream(null, {
                 reuseArticle: article,
                 skipUserEcho: true,
                 endpoint: `/chats/${this.#chatId}/messages/${assistantId}/regenerate/stream`,
-                extraParams: { /* e.g. temperature: 0.8 */ },
-                regenButton: button, // so we can restore state after finishing
+                extraParams: {},
+                regenButton: button,
             });
             return;
         }
 
         if (action === "copy") {
-            try { await navigator.clipboard.writeText(text || ""); }
-            catch (e) { console.error("Copy failed:", e); }
+            try {
+                await navigator.clipboard.writeText(text || "");
+            } catch (e) {
+                console.error("Copy failed:", e);
+            }
             return;
         }
     };
