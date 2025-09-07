@@ -44,17 +44,35 @@ export async function get(path, token = null) {
     return {ok: res.ok, data};
 }
 
-export async function authPost(path, body) {
+export async function authPostForm(path, formData) {
     const rawToken = localStorage.getItem('token') || "";
-    const token = rawToken.replace(/^"|"$/g, ""); // remove leading/trailing quotes if present
+    const token = rawToken.replace(/^"|"$/g, "");
+
     const res = await fetch(`${base}${path}`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Accept': 'application/json', "Authorization": `Bearer ${token}`},
-        body: JSON.stringify(body)
+        headers: {
+            'Accept': 'application/json',     // important: avoid 302 HTML redirects
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: formData,
     });
-    const data = await res.json().catch(() => ({}));
-    return {ok: res.ok, data};
+
+    let data = {};
+    try { data = await res.json(); } catch {}
+
+    if (!res.ok) {
+        // Prefer Laravel validation errors if present
+        let msg = data?.message || 'Request failed';
+        if (data?.errors) {
+            const lines = Object.values(data.errors).flat();
+            if (lines?.length) msg = lines.join(' ');
+        }
+        return { ok: false, data, error: msg };
+    }
+
+    return { ok: true, data };
 }
+
 
 export async function authPostBlob(path, body) {
     const rawToken = localStorage.getItem('token') || "";

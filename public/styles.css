@@ -471,3 +471,5 @@ pre.code code{
 .bubble{ max-width: 100%; }   /* <— add this if you remove max-width from .bubble */
 
 
+.icon-btn.is-recording svg { animation: micPulse 1s ease-in-out infinite; }
+@keyframes micPulse { 0%{transform:scale(1)}50%{transform:scale(1.06)}100%{transform:scale(1)} }

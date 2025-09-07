@@ -36,7 +36,15 @@ class Chat {
         // core UI
         this.window = new Window("#chat");
         this.sidebar = new Sidebar("#recent-conversations");
-        this.input = new Input({formSelector: "#chat-form", inputSelector: "#message"});
+        this.input = new Input({
+            formSelector: "#chat-form",
+            inputSelector: "#message",
+            recordSelector: '[data-hook="voice"]', // 👈 hook the 🎙️ button, // the mic button near your input
+            sttEndpoint: "/transcribe",
+            recordingClass: "is-recording",
+            onSttError: showError,          // you already have this helper
+        });
+
 
         // features
         this.regen = new Regenerator({
