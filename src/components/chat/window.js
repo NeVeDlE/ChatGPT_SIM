@@ -23,6 +23,7 @@ export class Window {
 
         // delegate ALL clicks
         this.#chatBox.addEventListener("click", (e) => {
+
             const btn = e.target.closest("[data-action]");
             if (!btn) return;
             const article = btn.closest("article.msg");
@@ -54,6 +55,11 @@ export class Window {
             }
             if (action === "regenerate" && role === "assistant") {
                 this.#emitAction({ action: "regenerate", id, role, article, contentEl, text, button: btn });
+                return;
+            }
+            if(action=='read'){
+                const current = contentEl.innerText;
+                this.#emitAction({ action: "read", button: btn,text:current.trim() });
                 return;
             }
 

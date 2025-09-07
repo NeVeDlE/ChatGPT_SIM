@@ -3,7 +3,6 @@ export class ConversationLoader {
     #authGet; #window; #setActivePivotId; #showError;
 
     constructor({ authGet, window, setActivePivotId, showError }) {
-        console.log('here');
         this.#authGet = authGet;
         this.#window = window;
         this.#setActivePivotId = setActivePivotId;

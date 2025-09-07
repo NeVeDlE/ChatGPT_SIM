@@ -1,6 +1,5 @@
 import { post } from '../services/api';
 import { saveUserData, getToken } from '../services/storage';
-import Router from '../utils/router'; // not used directly, but ensures bundlers include shared chunk if needed
 
 export function init() {
     // Already logged in? go chat
